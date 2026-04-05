@@ -1,0 +1,78 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+env/
+venv/
+.venv/
+ENV/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Logs and runtime files
+*.log
+*.out
+*.pid
+*.pid.lock
+
+# Coverage / test / type-check caches
+.coverage
+.coverage.*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE / editor settings
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+
+# Database / local files
+*.sqlite3
+*.db
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+
+add_super_admin.py
+insert_script.py
+scrtipts/
