@@ -169,47 +169,7 @@ python scripts/add_super_admin.py
 - `Base.metadata.create_all(bind=engine)` runs on startup. For mature environments, use migrations.
 - The repository includes more dependencies than the API strictly needs. Keep requirements curated before production deployment.
 
----
 
-## GitHub About (Ready to Paste)
 
-Use this in your GitHub repository settings.
-
-### Description
-
-Role-based FastAPI backend for a matrimony platform with JWT auth, profile workflows, community moderation, events, and matchmaking feed.
-
-### Topics
-
-```text
-fastapi, python, sqlalchemy, pydantic, jwt, oauth2, postgresql, redis, twilio, cloudinary, matrimony, matchmaking, rest-api
-```
-
-### Packages
-
-Recommended package metadata (if you publish packages later):
-
-- No GitHub Package is currently published from this repository.
-- Runtime package ecosystem in use: PyPI dependencies (FastAPI, SQLAlchemy, Pydantic, Redis client, Twilio, Cloudinary).
-
-If you want to explicitly fill the Packages section in docs/release notes, use:
-
-```text
-Package registry: PyPI (dependencies only), no internal package published yet.
-```
-
-### Releases
-
-Suggested release strategy:
-
-- `v0.1.0` - Initial stable backend baseline (auth, users, community, feed, events)
-- `v0.2.0` - Analytics/suggestions router integration and API hardening
-- `v1.0.0` - Production-ready milestone (migrations, locked CORS, CI tests, docs finalized)
-
-Suggested first release notes title:
-
-```text
-v0.1.0 - Initial Matrimony Backend API Baseline
-```
 
 
