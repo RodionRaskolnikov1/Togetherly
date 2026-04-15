@@ -518,6 +518,7 @@ def upload_event_image_service(
     request,
     is_poster: bool = False
 ):
+    """Upload event image (can be multiple)"""
     admin = db.query(CommunityAdmin).filter(
         CommunityAdmin.user_id == current_user.id
     ).first()
@@ -537,15 +538,7 @@ def upload_event_image_service(
     
     event.poster_image_url = image_url
     event.poster_public_id = public_id
-    
-    existing_poster = db.query(EventImage).filter(
-        EventImage.event_id == event_id,
-        EventImage.is_poster == True
-    ).first()
-
-    if not existing_poster:
-        is_poster = True
-        
+    # If this is set as poster, unset other poster images
     if is_poster:
         db.query(EventImage).filter(
             EventImage.event_id == event_id,

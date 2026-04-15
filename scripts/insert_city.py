@@ -1,4 +1,3 @@
-import uuid
 import requests, json, time, re
 from database import SessionLocal, Base, engine
 from models.city import City
@@ -24,13 +23,10 @@ def insert_cities(records):
     
     try:
         gujarat = db.query(State).filter(State.name == "Gujarat").first()
+        
         if not gujarat:
             raise Exception("State 'Gujarat' not found in states table")
         
-        # Build all city objects first
-        cities_to_insert = []
-        seen = set()  # avoid duplicates in memory
-
         for record in records:
             raw_name = record.get("officename")
             pincode = record.get("pincode")
@@ -39,36 +35,37 @@ def insert_cities(records):
                 continue
             
             name = re.sub(r"\b(BO|SO|HO|MDG|RMS|B.O)$", "", raw_name).strip()
-            pincode = str(pincode).strip()
-            if not pincode.isdigit():
+            
+            try:
+                pincode = int(pincode)
+            except:
                 continue
             
-            key = (name, pincode, gujarat.id)
-            if key in seen:
+            exists = db.query(City).filter(
+                City.name == name,
+                City.pincode == pincode,
+                City.state_id == gujarat.id
+            ).first()
+            
+            if exists:
                 continue
-            seen.add(key)
-
-            cities_to_insert.append(City(
-                name=name,
-                pincode=pincode,
+        
+            new_city = City(
+                name = name,
+                pincode = pincode,
                 state_id=gujarat.id
-            ))
-
-        # Single bulk insert, ignore conflicts
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
-        if cities_to_insert:
-            stmt = pg_insert(City).values([
-                {"id": str(uuid.uuid4()), "name": c.name, "pincode": c.pincode, "state_id": c.state_id}
-                for c in cities_to_insert
-            ]).on_conflict_do_nothing()  # skips duplicates automatically
+            )
             
-            db.execute(stmt)
-            db.commit()
-            print(f"Inserted {len(cities_to_insert)} cities successfully")
-
+            db.add(new_city)
+            
+        db.commit()
+        print("Cities inserted into DB successfully")
+        
     except Exception as e:
         db.rollback()
         print("DB insert Error: ", e)
+        
+        
     finally:
         db.close()
 

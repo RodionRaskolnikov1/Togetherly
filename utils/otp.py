@@ -84,6 +84,7 @@ def _gen_otp():
 def send_otp(target: str, via_email: bool):
     is_user_blocked(target)
     check_rate_limit(target)
+    check_cooldown(target)
     otp = _gen_otp()
     r.setex(f"otp:{target}", OTP_TTL_SECONDS, otp)
     if via_email:

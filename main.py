@@ -2,9 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import Base, engine
 from routers import (
-     auth, data, users,
-     super_admin, community_admin, community_coordinator, 
-     settings
+    auth, data, users,
+    super_admin, community_admin, community_coordinator, 
+    settings, feed, events
 )
 from dotenv import load_dotenv
 load_dotenv()
@@ -28,3 +28,5 @@ app.include_router(super_admin.router)
 app.include_router(community_admin.router)
 app.include_router(community_coordinator.router)
 app.include_router(settings.router)
+app.include_router(feed.router)
+app.include_router(events.router)

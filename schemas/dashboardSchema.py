@@ -33,7 +33,7 @@ class LifestyleOut(BaseModel):
     smoking: str
     drinking: str
     physical_status: str
-    health_issues: Optional[str]
+    health_issues : str
     blood_group : BloodGroupEnum
     body_type : BodyTypeEnum
     height: int 
@@ -49,7 +49,7 @@ class FamilyOut(BaseModel):
     father_occupation: Optional[str] = None
 
     mother_status: Optional[ParentStatusEnum] = None
-    mother_name: Optional[str]
+    mother_name: str
     mother_occupation: Optional[str] = None
 
     number_of_family_members: Optional[int] = 0
@@ -93,7 +93,7 @@ class workAddressOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
 class horoscopeOut(BaseModel):
-    time_of_birth: Optional[time]
+    time_of_birth: time
     place_of_birth: str
     rashi: str
     nakshatra: str
@@ -156,7 +156,7 @@ class DashboardResponse(BaseModel):
     first_name: str
     father_name : str
     last_name: str
-    dob: Optional[date]
+    dob : date
     email: Optional[str]
     phone: Optional[str]
     gender: str
@@ -175,7 +175,7 @@ class CoordinatorUserDetailsResponse(BaseModel):
     first_name: str
     father_name: str
     last_name: str
-    dob: Optional[date]
+    dob: date
     email: Optional[str]
     phone: Optional[str]
     gender: str
