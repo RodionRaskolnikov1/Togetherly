@@ -131,7 +131,7 @@ def get_profiles(
     
 @router.post("/connection-request")
 def send_request(
-        profile_id: str,
+        profile_id: str = Query(...),
         db: Session = Depends(get_db),
         current_user = Depends(get_current_user)
     ):

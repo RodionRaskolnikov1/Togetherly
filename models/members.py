@@ -22,3 +22,4 @@ class Member(Base):
     
     community_admin = relationship("CommunityAdmin", back_populates="member")
     
+    registrations = relationship("EventRegistration", back_populates="member", cascade="all, delete-orphan")

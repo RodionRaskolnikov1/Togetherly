@@ -11,7 +11,7 @@ from models import (
     FamilyDetails, ProfileConnections,
     UserBlock, SupportTicket, AppFeedback,
     UserPreference, CurrentAddress, Country,
-    ProfileImage, UserSettings, ProfileFavourite, WorkAddress
+    ProfileImage, UserSettings, ProfileFavourite, WorkAddress, user
 )
 
 from utils.enums import (
@@ -24,6 +24,7 @@ from utils.mail import (
 )
 
 from schemas.settings_schema import UserPreferenceCreate
+from schemas.dashboardSchema import FeedUserOut
 
 MAX_FAVOURITES = 10
 PENDING_EXPIRY_HOURS = 24
@@ -228,7 +229,7 @@ def get_suggested_profiles(
             connection_direction = "received"
 
         result.append({
-            "user": u,  
+            "user": FeedUserOut.model_validate(u),  
             "meta": {
                 "connection_status": connection_status,       
                 "connection_direction": connection_direction, 
@@ -355,29 +356,85 @@ def get_connection_requests(db, current_user):
 
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=PENDING_EXPIRY_HOURS)).replace(tzinfo=None)
 
+    blocked_ids = {
+        r.blocked_user_id
+        for r in db.query(UserBlock).filter(UserBlock.blocker_id == current_user.id).all()
+    }
+    blocker_ids = {
+        r.blocker_id
+        for r in db.query(UserBlock).filter(UserBlock.blocked_user_id == current_user.id).all()
+    }
+    
     rows = (
         db.query(ProfileConnections, User)
         .join(Profile, Profile.id == ProfileConnections.sender_id)
         .join(User, User.id == Profile.user_id)
+        .options(
+            joinedload(User.profile).joinedload(Profile.education_details),
+            joinedload(User.profile).joinedload(Profile.profession_details).joinedload(ProfessionDetails.work_address),
+            joinedload(User.profile).joinedload(Profile.lifestyle),
+            joinedload(User.profile).joinedload(Profile.current_address),
+            joinedload(User.profile).joinedload(Profile.permanent_address),
+            joinedload(User.profile).joinedload(Profile.horoscope),
+            joinedload(User.profile).joinedload(Profile.family_details),
+            joinedload(User.profile).joinedload(Profile.communities)
+                .joinedload(ProfileCommunity.community),
+            joinedload(User.profile).joinedload(Profile.profile_images),
+            joinedload(User.settings),
+        )
         .filter(
             ProfileConnections.receiver_id == profile.id,
             ProfileConnections.status == ConnectionRequestEnum.pending,
-            ProfileConnections.created_at >= cutoff   # ← only recent (< 24h old)
+            ProfileConnections.created_at >= cutoff
         )
         .all()
     )
 
-    return {
-        "count": len(rows),
-        "requests": [
-            {
+    requests = []
+    for conn, user in rows:
+        visibility = user.settings.visibility if user.settings else VisibilityEnum.public
+        
+        if user.id in blocked_ids or user.id in blocker_ids:
+            continue
+
+        if visibility == VisibilityEnum.public:
+            # Full profile — same as feed
+            requests.append({
                 "connection_id": conn.id,
                 "sender_profile_id": conn.sender_id,
-                "sender_name": f"{user.first_name} {user.last_name}",
                 "sent_at": conn.created_at,
-            }
-            for conn, user in rows
-        ]
+                "visibility": "public",
+                "user": FeedUserOut.model_validate(user),  
+            })
+        else:
+            # Private — sirf basic info
+            p = user.profile
+            primary_image = next(
+                (img.image_url for img in p.profile_images if img.is_primary),
+                None
+            ) if p and p.profile_images else None
+
+            requests.append({
+                "connection_id": conn.id,
+                "sender_profile_id": conn.sender_id,
+                "sent_at": conn.created_at,
+                "visibility": "private",
+                "user": {
+                    "id": user.id,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "profile_image": primary_image,
+                    "age": (
+                        date.today().year - user.dob.year - (
+                            (date.today().month, date.today().day) < (user.dob.month, user.dob.day)
+                        )
+                    ) if user.dob else None,
+                }
+            })
+
+    return {
+        "count": len(requests),
+        "requests": requests
     }
  
  
@@ -432,7 +489,17 @@ def get_my_connections(db, current_user):
     profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
     if not profile:
         raise HTTPException(400, "Profile not found")
-
+    
+    
+    blocked_ids = {
+        r.blocked_user_id
+        for r in db.query(UserBlock).filter(UserBlock.blocker_id == current_user.id).all()
+    }
+    blocker_ids = {
+        r.blocker_id
+        for r in db.query(UserBlock).filter(UserBlock.blocked_user_id == current_user.id).all()
+    }
+    
     # Rows where I am the sender and it's accepted
     sent_accepted = db.query(ProfileConnections).filter(
         ProfileConnections.sender_id == profile.id,
@@ -458,28 +525,44 @@ def get_my_connections(db, current_user):
         p.id: p for p in db.query(Profile).filter(Profile.id.in_(mutual_ids)).all()
     }
 
-    users = {
-        u.id: u for u in db.query(User).filter(
-            User.id.in_([p.user_id for p in profiles.values()])
-        ).all()
-    }
+    users = (
+        db.query(User)
+        .join(Profile, Profile.user_id == User.id)
+        .outerjoin(Lifestyle, Lifestyle.profile_id == Profile.id)
+        .outerjoin(PermanentAddress, PermanentAddress.profile_id == Profile.id)
+        .outerjoin(CurrentAddress, CurrentAddress.profile_id == Profile.id)
+        .outerjoin(ProfessionDetails, ProfessionDetails.profile_id == Profile.id)
+        .outerjoin(WorkAddress, WorkAddress.profession_id == ProfessionDetails.id)
+        .outerjoin(FamilyDetails, FamilyDetails.profile_id == Profile.id)
+        .outerjoin(EducationDetails, EducationDetails.profile_id == Profile.id)
+        .options(
+            joinedload(User.profile).joinedload(Profile.education_details),
+            joinedload(User.profile).joinedload(Profile.profession_details).joinedload(ProfessionDetails.work_address),
+            joinedload(User.profile).joinedload(Profile.lifestyle),
+            joinedload(User.profile).joinedload(Profile.current_address),
+            joinedload(User.profile).joinedload(Profile.permanent_address),
+            joinedload(User.profile).joinedload(Profile.horoscope),
+            joinedload(User.profile).joinedload(Profile.family_details),
+            joinedload(User.profile).joinedload(Profile.communities)
+                .joinedload(ProfileCommunity.community),
+            joinedload(User.profile).joinedload(Profile.profile_images),
+        )
+        .filter(Profile.id.in_(mutual_ids))
+        .all()
+    )
 
     result = []
-    for other_id in mutual_ids:
-        other_profile = profiles.get(other_id)
-        if not other_profile:
-            continue
-        other_user = users.get(other_profile.user_id)
-        if not other_user:
+    for u in users:
+        p = u.profile
+        
+        if u.id in blocked_ids or u.id in blocker_ids:
             continue
 
-        conn = sent_to[other_id]  # use either row for metadata
+        conn = sent_to[p.id]
         result.append({
             "connection_id": conn.id,
-            "profile_id": other_profile.id,
-            "user_id": other_user.id,
-            "name": f"{other_user.first_name} {other_user.last_name}",
             "connected_at": conn.responded_at,
+            "user": FeedUserOut.model_validate(u),  
         })
 
     return {"count": len(result), "connections": result}
@@ -530,29 +613,91 @@ def get_pending_requests(db, current_user):
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=PENDING_EXPIRY_HOURS)
 
+    # Block logic
+    blocked_ids = {
+        r.blocked_user_id
+        for r in db.query(UserBlock).filter(UserBlock.blocker_id == current_user.id).all()
+    }
+    blocker_ids = {
+        r.blocker_id
+        for r in db.query(UserBlock).filter(UserBlock.blocked_user_id == current_user.id).all()
+    }
+
     rows = (
         db.query(ProfileConnections, User)
         .join(Profile, Profile.id == ProfileConnections.sender_id)
         .join(User, User.id == Profile.user_id)
+        .options(
+            joinedload(User.profile).joinedload(Profile.education_details),
+            joinedload(User.profile).joinedload(Profile.profession_details).joinedload(ProfessionDetails.work_address),
+            joinedload(User.profile).joinedload(Profile.lifestyle),
+            joinedload(User.profile).joinedload(Profile.current_address),
+            joinedload(User.profile).joinedload(Profile.permanent_address),
+            joinedload(User.profile).joinedload(Profile.horoscope),
+            joinedload(User.profile).joinedload(Profile.family_details),
+            joinedload(User.profile).joinedload(Profile.communities)
+                .joinedload(ProfileCommunity.community),
+            joinedload(User.profile).joinedload(Profile.profile_images),
+            joinedload(User.settings),
+        )
         .filter(
             ProfileConnections.receiver_id == profile.id,
             ProfileConnections.status == ConnectionRequestEnum.pending,
-            ProfileConnections.created_at < cutoff    # ← only old (> 24h old)
+            ProfileConnections.created_at < cutoff   # only old pending
         )
         .all()
     )
 
-    return {
-        "count": len(rows),
-        "requests": [
-            {
+    requests = []
+
+    for conn, user in rows:
+
+        # Skip blocked users
+        if user.id in blocked_ids or user.id in blocker_ids:
+            continue
+
+        visibility = user.settings.visibility if user.settings else VisibilityEnum.public
+
+        if visibility == VisibilityEnum.public:
+            requests.append({
                 "connection_id": conn.id,
                 "sender_profile_id": conn.sender_id,
-                "sender_name": f"{user.first_name} {user.last_name}",
                 "sent_at": conn.created_at,
-            }
-            for conn, user in rows
-        ]
+                "visibility": "public",
+                "user": FeedUserOut.model_validate(user),
+            })
+        else:
+            p = user.profile
+
+            primary_image = next(
+                (img.image_url for img in p.profile_images if img.is_primary),
+                None
+            ) if p and p.profile_images else None
+
+            age = None
+            if user.dob:
+                today = date.today()
+                age = today.year - user.dob.year - (
+                    (today.month, today.day) < (user.dob.month, user.dob.day)
+                )
+
+            requests.append({
+                "connection_id": conn.id,
+                "sender_profile_id": conn.sender_id,
+                "sent_at": conn.created_at,
+                "visibility": "private",
+                "user": {
+                    "id": user.id,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "profile_image": primary_image,
+                    "age": age,
+                }
+            })
+
+    return {
+        "count": len(requests),
+        "requests": requests
     }
    
 

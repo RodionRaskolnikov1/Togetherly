@@ -42,6 +42,14 @@ Key backend folders:
 - `crud/` - focused data-access helpers
 - `scripts/` - bootstrap/seed utility scripts
 
+## Portfolio Demo UI
+
+To showcase this backend without the Flutter app, use the lightweight API demo in:
+
+- `frontend-demo/`
+
+It provides login, JWT-based protected calls, quick action buttons, and a generic API playground to hit any endpoint.
+
 ## API Modules (Mounted in App)
 
 The following routers are currently mounted in `main.py`:

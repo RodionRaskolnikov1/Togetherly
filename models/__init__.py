@@ -35,3 +35,4 @@ from .support_tickets import SupportTicket
 from .app_feedback import AppFeedback
 from .user_preference import UserPreference
 from .profile_favourite import ProfileFavourite
+from .event_registration import EventRegistration

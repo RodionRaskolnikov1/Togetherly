@@ -14,7 +14,9 @@ from services.coordinator_services import (
     get_coordinator_logs_service,
     get_coordinator_reports_service,
     get_coordinator_events_service,
-    get_coordinator_announcements_service
+    get_coordinator_event_detail_service,
+    get_coordinator_announcements_service,
+    get_coordinator_me_service
 )
 
 from services.review_verification_document_service import (
@@ -51,8 +53,13 @@ def coordinator_reports(db: Session = Depends(get_db), current_user = Depends(re
     return get_coordinator_reports_service(db, current_user)
 
 @router.get("/community-requests")
-def community_requests(request: Request, db: Session = Depends(get_db), current_user = Depends(require_community_coordinator)):
-    return fetch_community_requests(db, current_user, request)
+def community_requests(
+        request: Request,
+        db: Session = Depends(get_db),
+        current_user = Depends(require_community_coordinator),
+        status: str = "pending"
+    ):
+    return fetch_community_requests(db, current_user, request, status)
 
 @router.get("/community-requests/{request_id}", response_model=CoordinatorUserDetailsResponse)
 def get_community_request(
@@ -120,9 +127,19 @@ def get_member_details(
 
 
 
+@router.get("/me")
+def get_coordinator_me(db: Session = Depends(get_db), current_user = Depends(require_community_coordinator)):
+    return get_coordinator_me_service(db, current_user)
+
+
 @router.get("/events")
 def get_coordinator_events(db: Session = Depends(get_db), current_user = Depends(require_community_coordinator)):
     return get_coordinator_events_service(db, current_user)
+
+
+@router.get("/events/{event_id}")
+def get_coordinator_event_detail(event_id: str, db: Session = Depends(get_db), current_user = Depends(require_community_coordinator)):
+    return get_coordinator_event_detail_service(event_id, db, current_user)
 
 
 @router.get("/announcements")

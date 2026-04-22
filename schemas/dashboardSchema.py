@@ -29,15 +29,15 @@ class EducationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class LifestyleOut(BaseModel):
-    diet: str
-    smoking: str
-    drinking: str
-    physical_status: str
-    health_issues : str
-    blood_group : BloodGroupEnum
-    body_type : BodyTypeEnum
-    height: int 
-    weight: int
+    diet: Optional[str] = None
+    smoking: Optional[str] = None
+    drinking: Optional[str] = None
+    physical_status: Optional[str] = None
+    health_issues: Optional[str] = None
+    blood_group: Optional[BloodGroupEnum] = None
+    body_type: Optional[BodyTypeEnum] = None
+    height: Optional[int] = None
+    weight: Optional[int] = None
     model_config = ConfigDict(from_attributes=True)
 
 class FamilyOut(BaseModel):
@@ -182,6 +182,21 @@ class CoordinatorUserDetailsResponse(BaseModel):
     account_status: str
     phone_verified: bool
     
+    profile: Optional[ProfileDashboardOut]
+
+    model_config = ConfigDict(from_attributes=True)
+    
+    
+class FeedUserOut(BaseModel):
+    id: str
+    first_name: str
+    father_name: str
+    last_name: str
+    dob: date
+    email: Optional[str]
+    phone: Optional[str]
+    gender: str
+    account_status: str
     profile: Optional[ProfileDashboardOut]
 
     model_config = ConfigDict(from_attributes=True)

@@ -6,7 +6,10 @@ from utils.auth_utils import get_current_user
 
 from services.events_services import (
     get_all_events_service,
-    get_event_description
+    get_event_description,
+    register_for_event_service,
+    cancel_registration_service,
+    get_my_registrations_service
 )
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -19,6 +22,23 @@ def get_all_events(
     ):
     return get_all_events_service(db, current_user)
 
+@router.get("/my-registrations")
+def my_registrations(
+        db: Session = Depends(get_db),
+        current_user=Depends(get_current_user)
+    ):
+    return get_my_registrations_service(db, current_user)
+
+
+@router.post("/{event_id}/register")
+def register_for_event(
+        event_id: str,
+        db: Session = Depends(get_db),
+        current_user=Depends(get_current_user)
+    ):
+    return register_for_event_service(event_id, db, current_user)
+
+
 @router.get("/{event_id}")
 def get_event(
         event_id : str,
@@ -26,5 +46,15 @@ def get_event(
         current_user = Depends(get_current_user)
     ):
     return get_event_description(event_id, db, current_user)
+
+
+@router.delete("/{event_id}/cancel-registration")
+def cancel_registration(
+        event_id: str,
+        db: Session = Depends(get_db),
+        current_user=Depends(get_current_user)
+    ):
+    return cancel_registration_service(event_id, db, current_user)
+
 
 

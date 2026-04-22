@@ -10,8 +10,8 @@ from services.community_admin_services import  (
         set_event_poster_service, delete_event_image_service,
         add_member_service, get_members_service,
         create_announcement_service, list_announcements_service,
-        publish_announcement_service, delete_announcement_service
-    
+        publish_announcement_service, delete_announcement_service,
+        get_event_registrations_service
     )
 
 from schemas.coordinatorSchema import CoordinatorCreate
@@ -138,6 +138,15 @@ def delete_event_image(
         request: Request = None
     ):
     return delete_event_image_service(event_id, image_id, db, current_user, request)
+
+
+@router.get("/events/{event_id}/registrations")
+def get_event_registrations(
+        event_id: str,
+        db: Session = Depends(get_db),
+        current_user=Depends(require_community_admin)
+    ):
+    return get_event_registrations_service(event_id, db, current_user)
 
 
 @router.post("/add-members")

@@ -41,4 +41,4 @@ class Events(Base):
     community = relationship("Community", back_populates="events")
     community_admin = relationship("CommunityAdmin", back_populates="events")
     event_images = relationship("EventImage", back_populates="event", cascade="all, delete-orphan")
-    
+    registrations = relationship("EventRegistration", back_populates="event", cascade="all, delete-orphan")

@@ -6,11 +6,11 @@ from models import (
     Community, User, Coordinator, 
     CommunityAdmin, Invite, AdminLogs,
     Events, CoordinatorLogs, Member, ProfileCommunity, Announcement,
-    UserImage
+    UserImage, EventRegistration
 )
 
 from utils.hash import hash_password
-from utils.enums import RoleEnum, EventStatusEnum
+from utils.enums import RoleEnum, EventStatusEnum, RegistrationStatusEnum
 from utils.logs import create_admin_log
 from utils.otp import send_coordinator_invite_email, send_member_invite
 from utils.event_utils import auto_complete_events
@@ -708,6 +708,43 @@ def delete_event_image_service(
     )
 
     return {"message": "Image deleted successfully"}
+
+
+
+def get_event_registrations_service(event_id: str, db: Session, current_user: User):
+    
+    admin = db.query(CommunityAdmin).filter(
+        CommunityAdmin.user_id == current_user.id
+    ).first()
+    if not admin:
+        raise HTTPException(400, "Community admin record not found")
+
+    event = db.query(Events).filter(
+        Events.id == event_id,
+        Events.community_id == admin.community_id
+    ).first()
+    if not event:
+        raise HTTPException(404, "Event not found or not authorized")
+
+    registrations = db.query(EventRegistration).filter(
+        EventRegistration.event_id == event_id,
+        EventRegistration.status == RegistrationStatusEnum.registered
+    ).all()
+
+    return {
+        "event_id": event_id,
+        "event_title": event.title,
+        "total_registered": len(registrations),
+        "members": [
+            {
+                "registration_id": r.id,
+                "member_id": r.member_id,
+                "user_id": r.member.user_id,
+                "registered_at": r.registered_at
+            }
+            for r in registrations
+        ]
+    }
     
     
 def add_member_service(payload, db: Session, current_user: User, request):

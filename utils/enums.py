@@ -167,3 +167,7 @@ class TicketStatusEnum(str, Enum):
     open = "open"
     in_progress = "in_progress"
     resolved = "resolved"
+    
+class RegistrationStatusEnum(str, Enum):
+    registered = "registered"
+    cancelled = "cancelled"

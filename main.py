@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from database import Base, engine
 from routers import (
     auth, data, users,
@@ -30,3 +31,32 @@ app.include_router(community_coordinator.router)
 app.include_router(settings.router)
 app.include_router(feed.router)
 app.include_router(events.router)
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title="Auth API (fixed)",
+        version="1.0.0",
+        routes=app.routes,
+    )
+
+    openapi_schema["components"]["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
+    }
+
+    # Apply to all endpoints automatically
+    for path in openapi_schema["paths"].values():
+        for method in path.values():
+            method["security"] = [{"BearerAuth": []}]
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi

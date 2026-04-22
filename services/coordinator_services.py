@@ -120,7 +120,7 @@ def get_coordinator_dashboard(db : Session, current_user : User):
         "pending_requests": pending_requests
     }
     
-def fetch_community_requests(db: Session, current_user,request):
+def fetch_community_requests(db: Session, current_user, request, status: str = "pending"):
    
    community_rows = (
         db.query(Coordinator.community_id)
@@ -130,7 +130,7 @@ def fetch_community_requests(db: Session, current_user,request):
    
    community_ids = [row.community_id for row in community_rows]
 
-   results = (
+   query = (
         db.query(
             CommunityRequest.id.label("request_id"),
             User.first_name,
@@ -141,11 +141,15 @@ def fetch_community_requests(db: Session, current_user,request):
         .join(Profile, Profile.id == CommunityRequest.profile_id)
         .join(User, User.id == Profile.user_id)
         .join(Community, Community.id == CommunityRequest.community_id)
-        .filter(
-            CommunityRequest.community_id.in_(community_ids)
-        )
-        .all()
+        .filter(CommunityRequest.community_id.in_(community_ids))
     )
+
+   # Allow filtering by status; default is "pending" so coordinator sees actionable items first
+   # Pass status="all" to get everything
+   if status != "all":
+        query = query.filter(CommunityRequest.status == status)
+
+   results = query.all()
 
    return [
         {
@@ -365,6 +369,84 @@ def get_coordinator_events_service(db: Session, current_user: User):
             }
             for event in events
         ]
+    }
+
+
+def get_coordinator_event_detail_service(event_id: str, db: Session, current_user: User):
+    """Fetch a single event detail for the coordinator's community"""
+    coordinator = db.query(Coordinator).filter_by(user_id=current_user.id, is_active=True).first()
+    if not coordinator:
+        raise HTTPException(403, "Not authorized or coordinator account is inactive")
+
+    event = (
+        db.query(Events)
+        .filter(
+            Events.id == event_id,
+            Events.community_id == coordinator.community_id
+        )
+        .first()
+    )
+
+    if not event:
+        raise HTTPException(404, "Event not found or does not belong to your community")
+
+    registrations_count = len([
+        r for r in event.registrations
+        if r.status.value == "registered"
+    ]) if event.registrations else 0
+
+    return {
+        "id": event.id,
+        "title": event.title,
+        "description": event.description,
+        "location": event.location,
+        "start_datetime": event.start_datetime,
+        "end_datetime": event.end_datetime,
+        "status": event.status,
+        "is_published": event.is_published,
+        "poster_image_url": next(
+            (img.image_url for img in event.event_images if img.is_poster),
+            None
+        ),
+        "images": [
+            {
+                "id": img.id,
+                "image_url": img.image_url,
+                "is_poster": img.is_poster
+            }
+            for img in event.event_images
+        ],
+        "total_registrations": registrations_count
+    }
+
+
+def get_coordinator_me_service(db: Session, current_user: User):
+    """Fetch the coordinator's own profile info"""
+    coordinator = db.query(Coordinator).filter_by(user_id=current_user.id, is_active=True).first()
+    if not coordinator:
+        raise HTTPException(403, "Not authorized or coordinator account is inactive")
+
+    community = coordinator.community
+
+    return {
+        "id": current_user.id,
+        "first_name": current_user.first_name,
+        "father_name": current_user.father_name,
+        "last_name": current_user.last_name,
+        "email": current_user.email,
+        "phone": current_user.phone,
+        "gender": current_user.gender,
+        "dob": current_user.dob,
+        "account_status": current_user.account_status,
+        "phone_verified": current_user.phone_verified,
+        "email_verified": current_user.email_verified,
+        "coordinator_id": coordinator.id,
+        "is_active": coordinator.is_active,
+        "joined_at": coordinator.created_at,
+        "community": {
+            "id": community.id,
+            "name": community.display_name
+        } if community else None
     }
 
 
