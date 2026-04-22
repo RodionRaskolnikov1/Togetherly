@@ -7,5 +7,6 @@ passlib[bcrypt]
 python-dotenv
 cloudinary
 redis
+twilio
 python-multipart
 pydantic[email]
