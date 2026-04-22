@@ -10,3 +10,5 @@ redis
 python-multipart
 pydantic[email]
 twilio
+httpcore
+httpx
