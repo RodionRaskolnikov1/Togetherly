@@ -129,7 +129,32 @@ class VerficationDocumentOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
     
+    
+class CommunityOut(BaseModel):
+    id: str
+    display_name: str
+    description: Optional[str]
+    caste_id: str
+    sub_caste_id: str
+    religion_id: str
+    city_id: str
+
+    model_config = ConfigDict(from_attributes=True)
+    
+
+class ProfileCommunityOut(BaseModel):
+    id: str
+    community_id: str
+    profile_id: str
+    joined_at: datetime
+    verified_at: Optional[datetime]
+    verified_by: Optional[str]
+    community: CommunityOut
+
+    model_config = ConfigDict(from_attributes=True)
+    
 class ProfileDashboardOut(BaseModel):
+    id : str
     bio: Optional[str]
     marital_status: MaritalStatusEnum
     number_of_children: Optional[int]
@@ -148,6 +173,7 @@ class ProfileDashboardOut(BaseModel):
     lifestyle: Optional[LifestyleOut]
     family_details: Optional[FamilyOut]
     profile_images: List[ProfileImageOut]
+    communities: List[ProfileCommunityOut] = []
 
     model_config = ConfigDict(from_attributes=True)
 

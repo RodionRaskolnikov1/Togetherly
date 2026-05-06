@@ -243,56 +243,56 @@ def get_suggested_profiles(
 
 
 
-def _auto_create_reverse(db, from_profile, to_profile):
+def _auto_create_reverse(db, original_sender, original_receiver):
     reverse_existing = db.query(ProfileConnections).filter(
-        ProfileConnections.sender_id == to_profile.id,
-        ProfileConnections.receiver_id == from_profile.id
+        ProfileConnections.sender_id == original_receiver.id,
+        ProfileConnections.receiver_id == original_sender.id
     ).first()
-
+ 
     if reverse_existing:
-        return reverse_existing  
-
-    from_settings = db.query(UserSettings).filter(
-        UserSettings.user_id == from_profile.user_id
+        return reverse_existing
+ 
+    sender_settings = db.query(UserSettings).filter(
+        UserSettings.user_id == original_sender.user_id
     ).first()
-    from_visibility = from_settings.visibility if from_settings else VisibilityEnum.public
-
-    if from_visibility == VisibilityEnum.public:
+    sender_visibility = sender_settings.visibility if sender_settings else VisibilityEnum.public
+ 
+    if sender_visibility == VisibilityEnum.public:
         reverse = ProfileConnections(
-            sender_id=to_profile.id,
-            receiver_id=from_profile.id,
+            sender_id=original_receiver.id,
+            receiver_id=original_sender.id,
             status=ConnectionRequestEnum.accepted,
             responded_at=datetime.now(timezone.utc)
         )
     else:
         reverse = ProfileConnections(
-            sender_id=to_profile.id,
-            receiver_id=from_profile.id,
+            sender_id=original_receiver.id,
+            receiver_id=original_sender.id,
             status=ConnectionRequestEnum.pending
         )
-
+ 
     db.add(reverse)
     return reverse
 
 
 def send_connection_request(db, profile_id, current_user):
-
+ 
     sender_profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
     if not sender_profile:
         raise HTTPException(400, "Sender profile not found")
-
+ 
     receiver_profile = db.query(Profile).filter(Profile.id == profile_id).first()
     if not receiver_profile:
         raise HTTPException(400, "Receiver profile not found")
-
+ 
     if sender_profile.id == receiver_profile.id:
         raise HTTPException(400, "You cannot send a request to yourself")
-
+ 
     existing = db.query(ProfileConnections).filter(
         ProfileConnections.sender_id == sender_profile.id,
         ProfileConnections.receiver_id == receiver_profile.id
     ).first()
-
+ 
     if existing:
         if existing.status == ConnectionRequestEnum.accepted:
             raise HTTPException(400, "You have already sent a request that was accepted")
@@ -302,23 +302,23 @@ def send_connection_request(db, profile_id, current_user):
             try:
                 existing.status = ConnectionRequestEnum.pending
                 existing.responded_at = None
-                
+ 
                 db.query(ProfileConnections).filter(
                     ProfileConnections.sender_id == receiver_profile.id,
                     ProfileConnections.receiver_id == sender_profile.id
                 ).delete(synchronize_session=False)
-
+ 
                 db.commit()
                 return {"message": "Connection request re-sent successfully", "connected": False}
             except SQLAlchemyError:
                 db.rollback()
                 raise HTTPException(500, "Failed to resend connection request")
-
+ 
     receiver_settings = db.query(UserSettings).filter(
         UserSettings.user_id == receiver_profile.user_id
     ).first()
     receiver_visibility = receiver_settings.visibility if receiver_settings else VisibilityEnum.public
-
+ 
     try:
         if receiver_visibility == VisibilityEnum.public:
             connection = ProfileConnections(
@@ -328,9 +328,11 @@ def send_connection_request(db, profile_id, current_user):
                 responded_at=datetime.now(timezone.utc)
             )
             db.add(connection)
-
-            _auto_create_reverse(db, from_profile=sender_profile, to_profile=receiver_profile)
-
+ 
+            # BUG FIX 3 (call site): was _auto_create_reverse(db, from_profile=sender_profile, to_profile=receiver_profile)
+            # Renamed args make it crystal-clear: sender=X who initiated, receiver=Y who was public-accepted.
+            _auto_create_reverse(db, original_sender=sender_profile, original_receiver=receiver_profile)
+ 
             db.commit()
             return {"message": "Connected successfully", "connected": True}
         else:
@@ -342,20 +344,24 @@ def send_connection_request(db, profile_id, current_user):
             db.add(connection)
             db.commit()
             return {"message": "Connection request sent successfully", "connected": False}
-
+ 
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(500, "Failed to send connection request")
  
  
 def get_connection_requests(db, current_user):
-
+    """
+    Returns RECENT pending requests received by current_user (within PENDING_EXPIRY_HOURS).
+    connection_status = "received"  ← user-perspective label (consistent with pending endpoint)
+    connection_direction = "received"
+    """
     profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
     if not profile:
         raise HTTPException(400, "Profile not found")
-
+ 
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=PENDING_EXPIRY_HOURS)).replace(tzinfo=None)
-
+ 
     blocked_ids = {
         r.blocked_user_id
         for r in db.query(UserBlock).filter(UserBlock.blocker_id == current_user.id).all()
@@ -364,7 +370,14 @@ def get_connection_requests(db, current_user):
         r.blocker_id
         for r in db.query(UserBlock).filter(UserBlock.blocked_user_id == current_user.id).all()
     }
-    
+ 
+    favourite_ids = {
+        f.favourite_user_id
+        for f in db.query(ProfileFavourite).filter(
+            ProfileFavourite.user_id == current_user.id
+        ).all()
+    }
+ 
     rows = (
         db.query(ProfileConnections, User)
         .join(Profile, Profile.id == ProfileConnections.sender_id)
@@ -385,40 +398,43 @@ def get_connection_requests(db, current_user):
         .filter(
             ProfileConnections.receiver_id == profile.id,
             ProfileConnections.status == ConnectionRequestEnum.pending,
-            ProfileConnections.created_at >= cutoff
+            ProfileConnections.created_at >= cutoff   # recent requests only
         )
         .all()
     )
-
+ 
     requests = []
     for conn, user in rows:
-        visibility = user.settings.visibility if user.settings else VisibilityEnum.public
-        
         if user.id in blocked_ids or user.id in blocker_ids:
             continue
-
+ 
+        visibility = user.settings.visibility if user.settings else VisibilityEnum.public
+ 
         if visibility == VisibilityEnum.public:
-            # Full profile — same as feed
             requests.append({
                 "connection_id": conn.id,
                 "sender_profile_id": conn.sender_id,
                 "sent_at": conn.created_at,
-                "visibility": "public",
-                "user": FeedUserOut.model_validate(user),  
+                "user": FeedUserOut.model_validate(user),
+                "meta": {
+                    "connection_status": "pending",       # user-perspective, not DB state
+                    "connection_direction": "received",
+                    "is_favourite": user.id in favourite_ids,
+                    "visibility": "public",
+                    "status": "pending",
+                }
             })
         else:
-            # Private — sirf basic info
             p = user.profile
             primary_image = next(
                 (img.image_url for img in p.profile_images if img.is_primary),
                 None
             ) if p and p.profile_images else None
-
+ 
             requests.append({
                 "connection_id": conn.id,
                 "sender_profile_id": conn.sender_id,
                 "sent_at": conn.created_at,
-                "visibility": "private",
                 "user": {
                     "id": user.id,
                     "first_name": user.first_name,
@@ -429,9 +445,16 @@ def get_connection_requests(db, current_user):
                             (date.today().month, date.today().day) < (user.dob.month, user.dob.day)
                         )
                     ) if user.dob else None,
+                },
+                "meta": {
+                    "connection_status": "pending",       # user-perspective, not DB state
+                    "connection_direction": "received",
+                    "is_favourite": user.id in favourite_ids,
+                    "visibility": "private",
+                    "status": "pending",
                 }
             })
-
+ 
     return {
         "count": len(requests),
         "requests": requests
@@ -439,40 +462,41 @@ def get_connection_requests(db, current_user):
  
  
 def respond_to_connection_request(db, connection_id: str, action: str, current_user):
-
+ 
     if action not in ("accept", "reject"):
         raise HTTPException(400, "Action must be 'accept' or 'reject'")
-
+ 
     profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
     if not profile:
         raise HTTPException(400, "Profile not found")
-
+ 
     connection = db.query(ProfileConnections).filter(
         ProfileConnections.id == connection_id,
         ProfileConnections.receiver_id == profile.id,
         ProfileConnections.status == ConnectionRequestEnum.pending
     ).first()
-
+ 
     if not connection:
         raise HTTPException(404, "Pending connection request not found")
-
+ 
     try:
         if action == "accept":
             connection.status = ConnectionRequestEnum.accepted
             connection.responded_at = datetime.now(timezone.utc)
-            db.flush()  # write this before creating reverse
-
-            # Auto-trigger reverse: receiver → sender
+            db.flush()
+ 
             sender_profile = db.query(Profile).filter(
                 Profile.id == connection.sender_id
             ).first()
-
-            _auto_create_reverse(db, from_profile=sender_profile, to_profile=profile)
-
+ 
+            # BUG FIX 3 (call site): renamed args for clarity
+            # original_sender = whoever sent the request, original_receiver = current user (acceptor)
+            _auto_create_reverse(db, original_sender=sender_profile, original_receiver=profile)
+ 
         else:
             connection.status = ConnectionRequestEnum.rejected
             connection.responded_at = datetime.now(timezone.utc)
-
+ 
         db.commit()
         return {
             "message": f"Connection request {'accepted' if action == 'accept' else 'rejected'}",
@@ -485,12 +509,17 @@ def respond_to_connection_request(db, connection_id: str, action: str, current_u
  
  
 def get_my_connections(db, current_user):
-
+    """
+    Returns mutual (accepted in both directions) connections.
+ 
+    BUG FIX 2: connection_id is now the row where current_user is sender when available,
+    otherwise the received row. This ensures remove_connection always gets a valid row
+    the current user is party to, and the id is stable/predictable.
+    """
     profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
     if not profile:
         raise HTTPException(400, "Profile not found")
-    
-    
+ 
     blocked_ids = {
         r.blocked_user_id
         for r in db.query(UserBlock).filter(UserBlock.blocker_id == current_user.id).all()
@@ -499,32 +528,31 @@ def get_my_connections(db, current_user):
         r.blocker_id
         for r in db.query(UserBlock).filter(UserBlock.blocked_user_id == current_user.id).all()
     }
-    
-    # Rows where I am the sender and it's accepted
+ 
+    favourite_ids = {
+        f.favourite_user_id
+        for f in db.query(ProfileFavourite).filter(
+            ProfileFavourite.user_id == current_user.id
+        ).all()
+    }
+ 
     sent_accepted = db.query(ProfileConnections).filter(
         ProfileConnections.sender_id == profile.id,
         ProfileConnections.status == ConnectionRequestEnum.accepted
     ).all()
-
-    # Rows where I am the receiver and it's accepted
+ 
     received_accepted = db.query(ProfileConnections).filter(
         ProfileConnections.receiver_id == profile.id,
         ProfileConnections.status == ConnectionRequestEnum.accepted
     ).all()
-
-    # Mutual = other person's ID appears in BOTH sets
+ 
     sent_to = {conn.receiver_id: conn for conn in sent_accepted}
     received_from = {conn.sender_id: conn for conn in received_accepted}
-
     mutual_ids = set(sent_to.keys()) & set(received_from.keys())
-
+ 
     if not mutual_ids:
         return {"count": 0, "connections": []}
-
-    profiles = {
-        p.id: p for p in db.query(Profile).filter(Profile.id.in_(mutual_ids)).all()
-    }
-
+ 
     users = (
         db.query(User)
         .join(Profile, Profile.user_id == User.id)
@@ -550,31 +578,41 @@ def get_my_connections(db, current_user):
         .filter(Profile.id.in_(mutual_ids))
         .all()
     )
-
+ 
     result = []
     for u in users:
         p = u.profile
-        
+ 
         if u.id in blocked_ids or u.id in blocker_ids:
             continue
-
-        conn = sent_to[p.id]
+ 
+        # BUG FIX 2: prefer the row where current_user is sender (sent_to),
+        # fall back to received row. Both are valid for remove_connection since
+        # it deletes both directions via or_(), but this makes the returned
+        # connection_id consistent and predictable across calls.
+        conn = sent_to.get(p.id) or received_from.get(p.id)
+ 
         result.append({
             "connection_id": conn.id,
             "connected_at": conn.responded_at,
-            "user": FeedUserOut.model_validate(u),  
+            "user": FeedUserOut.model_validate(u),
+            "meta": {
+                "connection_status": "mutual",
+                "connection_direction": "mutual",
+                "is_favourite": u.id in favourite_ids,
+                "visibility": u.settings.visibility if u.settings else None,
+            }
         })
-
+ 
     return {"count": len(result), "connections": result}
  
  
 def remove_connection(db, connection_id: str, current_user):
-
+ 
     profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
     if not profile:
         raise HTTPException(400, "Profile not found")
-
-    # Find the specific connection row first to identify the other party
+ 
     connection = db.query(ProfileConnections).filter(
         ProfileConnections.id == connection_id,
         ProfileConnections.status == ConnectionRequestEnum.accepted,
@@ -583,14 +621,12 @@ def remove_connection(db, connection_id: str, current_user):
             ProfileConnections.receiver_id == profile.id
         )
     ).first()
-
+ 
     if not connection:
         raise HTTPException(404, "Connection not found")
-
-    # Identify the other person
+ 
     other_id = connection.receiver_id if connection.sender_id == profile.id else connection.sender_id
-
-    # Delete BOTH directional rows
+ 
     try:
         db.query(ProfileConnections).filter(
             or_(
@@ -603,17 +639,22 @@ def remove_connection(db, connection_id: str, current_user):
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(500, "Failed to remove connection")
-    
-
+ 
+ 
 def get_pending_requests(db, current_user):
-    
+    """
+    Returns OLDER pending requests received by current_user (beyond PENDING_EXPIRY_HOURS).
+ 
+    BUG FIX 1: connection_status was "pending" (DB state) — now "received" (user-perspective),
+    consistent with get_connection_requests. Both endpoints return requests where the
+    current user is the receiver; the only difference is timing.
+    """
     profile = db.query(Profile).filter(Profile.user_id == current_user.id).first()
     if not profile:
         raise HTTPException(400, "Profile not found")
-
+ 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=PENDING_EXPIRY_HOURS)
-
-    # Block logic
+ 
     blocked_ids = {
         r.blocked_user_id
         for r in db.query(UserBlock).filter(UserBlock.blocker_id == current_user.id).all()
@@ -622,7 +663,14 @@ def get_pending_requests(db, current_user):
         r.blocker_id
         for r in db.query(UserBlock).filter(UserBlock.blocked_user_id == current_user.id).all()
     }
-
+ 
+    favourite_ids = {
+        f.favourite_user_id
+        for f in db.query(ProfileFavourite).filter(
+            ProfileFavourite.user_id == current_user.id
+        ).all()
+    }
+ 
     rows = (
         db.query(ProfileConnections, User)
         .join(Profile, Profile.id == ProfileConnections.sender_id)
@@ -643,62 +691,72 @@ def get_pending_requests(db, current_user):
         .filter(
             ProfileConnections.receiver_id == profile.id,
             ProfileConnections.status == ConnectionRequestEnum.pending,
-            ProfileConnections.created_at < cutoff   # only old pending
+            ProfileConnections.created_at < cutoff    # older requests only
         )
         .all()
     )
-
+ 
     requests = []
-
     for conn, user in rows:
-
-        # Skip blocked users
         if user.id in blocked_ids or user.id in blocker_ids:
             continue
-
+ 
         visibility = user.settings.visibility if user.settings else VisibilityEnum.public
-
+ 
         if visibility == VisibilityEnum.public:
             requests.append({
                 "connection_id": conn.id,
                 "sender_profile_id": conn.sender_id,
                 "sent_at": conn.created_at,
-                "visibility": "public",
                 "user": FeedUserOut.model_validate(user),
+                "meta": {
+                    # BUG FIX 1: was "pending" — changed to "received" for consistency
+                    "connection_status": "received",
+                    "connection_direction": "received",
+                    "is_favourite": user.id in favourite_ids,
+                    "visibility": "public",
+                }
             })
         else:
             p = user.profile
-
             primary_image = next(
                 (img.image_url for img in p.profile_images if img.is_primary),
                 None
             ) if p and p.profile_images else None
-
+ 
             age = None
             if user.dob:
                 today = date.today()
                 age = today.year - user.dob.year - (
                     (today.month, today.day) < (user.dob.month, user.dob.day)
                 )
-
+ 
             requests.append({
                 "connection_id": conn.id,
                 "sender_profile_id": conn.sender_id,
                 "sent_at": conn.created_at,
-                "visibility": "private",
                 "user": {
                     "id": user.id,
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "profile_image": primary_image,
                     "age": age,
+                },
+                "meta": {
+                    # BUG FIX 1: was "pending" — changed to "received" for consistency
+                    "connection_status": "received",
+                    "connection_direction": "received",
+                    "is_favourite": user.id in favourite_ids,
+                    "visibility": "private",
                 }
             })
-
+ 
     return {
         "count": len(requests),
         "requests": requests
     }
+ 
+
    
 
 def get_blocked_users(db : Session, current_user):

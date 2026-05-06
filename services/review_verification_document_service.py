@@ -33,6 +33,7 @@ def get_pending_documents_for_coordinator(db: Session, current_user):
             VerificationDocuments.uploaded_at,
             User.first_name,
             User.last_name,
+            User.id.label("user_id"),
             Community.display_name.label("community_name"),
             Profile.id.label("profile_id")
         )
@@ -54,6 +55,7 @@ def get_pending_documents_for_coordinator(db: Session, current_user):
             "uploaded_at": doc.uploaded_at,
             "user_name": f"{doc.first_name} {doc.last_name}",
             "community_name": doc.community_name,
+            "user_id": doc.user_id,
             "profile_id": doc.profile_id
         }
         for doc in documents

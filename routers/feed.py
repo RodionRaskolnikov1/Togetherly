@@ -145,7 +145,7 @@ def get_requests(
     ):
     return get_connection_requests(db, current_user)
  
- 
+    
 @router.post("/connection-request/{connection_id}/respond")
 def respond_to_request(
         connection_id: str,
@@ -168,7 +168,7 @@ def pending_connections(
         db: Session = Depends(get_db),
         current_user = Depends(get_current_user)
     ):
-    return get_pending_requests(db, current_user) 
+    return get_pending_requests(db, current_user)
  
 @router.delete("/connections/{connection_id}")
 def delete_connection(
